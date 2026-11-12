@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -26,7 +27,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 상단 상태바 및 배경 다크 테마(#090d16) 적용
         Window window = getWindow();
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         window.setStatusBarColor(Color.parseColor("#090d16"));
@@ -34,10 +34,12 @@ public class MainActivity extends AppCompatActivity {
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.parseColor("#090d16"));
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         setContentView(webView);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setSupportZoom(true);
@@ -48,7 +50,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // 모바일 크롬 User-Agent 설정 (구글 로그인 및 Apps Script 호환성 보장)
         String defaultUA = settings.getUserAgentString();
         settings.setUserAgentString(defaultUA.replace("; wv", ""));
 
@@ -63,50 +64,46 @@ public class MainActivity extends AppCompatActivity {
                 Uri uri = request.getUrl();
                 String url = uri.toString();
 
-                // 카카오톡 실행 링크(kakaotalk:// 또는 open.kakao.com)는 외부 카카오톡 앱으로 즉시 연결
-                if (url.startsWith("kakaotalk://") || url.startsWith("intent://") || url.contains("open.kakao.com")) {
-                    try {
-                        Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
-                        startActivity(intent);
-                    } catch (Exception e) {
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    if (url.contains("open.kakao.com")) {
                         try {
-                            Intent marketIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                            startActivity(marketIntent);
+                            startActivity(new Intent(Intent.ACTION_VIEW, uri));
                         } catch (Exception ignored) {}
+                        return true;
                     }
-                    return true;
+                    return false;
                 }
-                return false;
+
+                // 카카오톡 앱 호출(kakaotalk:// 또는 intent://) 연결
+                try {
+                    Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+                return true;
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // 구글 Apps Script 상단 회색 경고 배너가 있을 경우 자동 숨김
+                // 출석부 본문(warning-bar-table)은 건드리지 않고 상단 배너(warning)만 안전하게 숨김
                 view.evaluateJavascript(
                     "(function(){" +
-                    "  var b = document.getElementById('warning-bar-table') || document.querySelector('.warning-bar');" +
-                    "  if(b) b.style.display='none';" +
+                    "  var w = document.getElementById('warning');" +
+                    "  if(w) w.style.display='none';" +
                     "})();", null
                 );
             }
         });
 
-        // 웹앱 로드
         webView.loadUrl(WEB_APP_URL);
 
-        // 휴대폰 뒤로가기 키를 눌러도 앱이 종료되지 않고 웹앱 내부 뒤로가기(초기화면 복귀 -> 저장 후 새로고침)가 작동하도록 연결
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    webView.evaluateJavascript(
-                        "if(typeof window.dispatchEvent === 'function') { window.dispatchEvent(new PopStateEvent('popstate')); }",
-                        null
-                    );
-                }
+                webView.evaluateJavascript(
+                    "if(typeof window.dispatchEvent === 'function') { window.dispatchEvent(new PopStateEvent('popstate')); }",
+                    null
+                );
             }
         });
     }
